@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	nex "github.com/PretendoNetwork/nex-go"
+	hpp "github.com/PretendoNetwork/hpp-go"
 )
 
 const (
@@ -152,7 +153,7 @@ const (
 
 // DataStoreProtocol handles the DataStore nex protocol
 type DataStoreProtocol struct {
-	server                       *nex.Server
+	server                       interface{}
 	GetMetaHandler               func(err error, client *nex.Client, callID uint32, dataStoreGetMetaParam *DataStoreGetMetaParam)
 	PrepareUpdateObjectHandler   func(err error, client *nex.Client, callID uint32, dataStorePrepareUpdateParam *DataStorePrepareUpdateParam)
 	CompleteUpdateObjectHandler  func(err error, client *nex.Client, callID uint32, dataStoreCompleteUpdateParam *DataStoreCompleteUpdateParam)
@@ -164,6 +165,18 @@ type DataStoreProtocol struct {
 	GetMetasMultipleParamHandler func(err error, client *nex.Client, callID uint32, dataStoreGetMetaParams []*DataStoreGetMetaParam)
 	ChangeMetaHandler            func(err error, client *nex.Client, callID uint32, dataStoreChangeMetaParam *DataStoreChangeMetaParam)
 	RateObjectsHandler           func(err error, client *nex.Client, callID uint32, targets []*DataStoreRatingTarget, params []*DataStoreRateObjectParam, transactional bool, fetchRatings bool)
+
+	GetMetaHppHandler               func(err error, client *hpp.HppRequest, callID uint32, dataStoreGetMetaParam *DataStoreGetMetaParam)
+	PrepareUpdateObjectHppHandler   func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareUpdateParam *DataStorePrepareUpdateParam)
+	CompleteUpdateObjectHppHandler  func(err error, client *hpp.HppRequest, callID uint32, dataStoreCompleteUpdateParam *DataStoreCompleteUpdateParam)
+	PostMetaBinaryHppHandler        func(err error, client *hpp.HppRequest, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam)
+	PreparePostObjectHppHandler     func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareGetParam *DataStorePreparePostParam)
+	PrepareGetObjectHppHandler      func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareGetParam *DataStorePrepareGetParam)
+	CompletePostObjectHppHandler    func(err error, client *hpp.HppRequest, callID uint32, dataStoreCompletePostParam *DataStoreCompletePostParam)
+	GetPersistenceInfoHppHandler    func(err error, client *hpp.HppRequest, callID uint32, ownerID uint32, persistenceSlotID uint16)
+	GetMetasMultipleParamHppHandler func(err error, client *hpp.HppRequest, callID uint32, dataStoreGetMetaParams []*DataStoreGetMetaParam)
+	ChangeMetaHppHandler            func(err error, client *hpp.HppRequest, callID uint32, dataStoreChangeMetaParam *DataStoreChangeMetaParam)
+	RateObjectsHppHandler           func(err error, client *hpp.HppRequest, callID uint32, targets []*DataStoreRatingTarget, params []*DataStoreRateObjectParam, transactional bool, fetchRatings bool)
 }
 
 type DataStoreNotificationV1 struct {
@@ -1913,381 +1926,784 @@ func NewDataStoreReqGetInfo() *DataStoreReqGetInfo {
 
 // Setup initializes the protocol
 func (dataStoreProtocol *DataStoreProtocol) Setup() {
-	nexServer := dataStoreProtocol.server
+	switch nexServer := dataStoreProtocol.server.(type) {
+		case *nex.Server:
+			nexServer.On("Data", func(packet nex.PacketInterface) {
+				request := packet.RMCRequest()
 
-	nexServer.On("Data", func(packet nex.PacketInterface) {
-		request := packet.RMCRequest()
+				if DataStoreProtocolID == request.ProtocolID() {
+					switch request.MethodID() {
+					case DataStoreMethodGetMeta:
+						go dataStoreProtocol.handleGetMeta(packet)
+					case DataStoreMethodPrepareUpdateObject:
+						go dataStoreProtocol.handlePrepareUpdateObject(packet)
+					case DataStoreMethodCompleteUpdateObject:
+						go dataStoreProtocol.handleCompleteUpdateObject(packet)
+					case DataStoreMethodPostMetaBinary:
+						go dataStoreProtocol.handlePostMetaBinary(packet)
+					case DataStoreMethodPreparePostObject:
+						go dataStoreProtocol.handlePreparePostObject(packet)
+					case DataStoreMethodPrepareGetObject:
+						go dataStoreProtocol.handlePrepareGetObject(packet)
+					case DataStoreMethodCompletePostObject:
+						go dataStoreProtocol.handleCompletePostObject(packet)
+					case DataStoreMethodGetPersistenceInfo:
+						go dataStoreProtocol.handleGetPersistenceInfo(packet)
+					case DataStoreMethodGetMetasMultipleParam:
+						go dataStoreProtocol.handleGetMetasMultipleParam(packet)
+					case DataStoreMethodChangeMeta:
+						go dataStoreProtocol.handleChangeMeta(packet)
+					case DataStoreMethodRateObjects:
+						go dataStoreProtocol.handleRateObjects(packet)
+					default:
+						go respondNotImplemented(packet, DataStoreProtocolID)
+						fmt.Printf("Unsupported DataStore method ID: %#v\n", request.MethodID())
+					}
+				}
+			})
+		case *hpp.Server:
+			nexServer.On("Data", func(packet *hpp.HppRequest) {
+				request := packet.RMCRequest()
 
-		if DataStoreProtocolID == request.ProtocolID() {
-			switch request.MethodID() {
-			case DataStoreMethodGetMeta:
-				go dataStoreProtocol.handleGetMeta(packet)
-			case DataStoreMethodPrepareUpdateObject:
-				go dataStoreProtocol.handlePrepareUpdateObject(packet)
-			case DataStoreMethodCompleteUpdateObject:
-				go dataStoreProtocol.handleCompleteUpdateObject(packet)
-			case DataStoreMethodPostMetaBinary:
-				go dataStoreProtocol.handlePostMetaBinary(packet)
-			case DataStoreMethodPreparePostObject:
-				go dataStoreProtocol.handlePreparePostObject(packet)
-			case DataStoreMethodPrepareGetObject:
-				go dataStoreProtocol.handlePrepareGetObject(packet)
-			case DataStoreMethodCompletePostObject:
-				go dataStoreProtocol.handleCompletePostObject(packet)
-			case DataStoreMethodGetPersistenceInfo:
-				go dataStoreProtocol.handleGetPersistenceInfo(packet)
-			case DataStoreMethodGetMetasMultipleParam:
-				go dataStoreProtocol.handleGetMetasMultipleParam(packet)
-			case DataStoreMethodChangeMeta:
-				go dataStoreProtocol.handleChangeMeta(packet)
-			case DataStoreMethodRateObjects:
-				go dataStoreProtocol.handleRateObjects(packet)
-			default:
-				go respondNotImplemented(packet, DataStoreProtocolID)
-				fmt.Printf("Unsupported DataStore method ID: %#v\n", request.MethodID())
-			}
-		}
-	})
+				if DataStoreProtocolID == request.ProtocolID() {
+					switch request.MethodID() {
+					case DataStoreMethodGetMeta:
+						go dataStoreProtocol.handleGetMeta(packet)
+					case DataStoreMethodPrepareUpdateObject:
+						go dataStoreProtocol.handlePrepareUpdateObject(packet)
+					case DataStoreMethodCompleteUpdateObject:
+						go dataStoreProtocol.handleCompleteUpdateObject(packet)
+					case DataStoreMethodPostMetaBinary:
+						go dataStoreProtocol.handlePostMetaBinary(packet)
+					case DataStoreMethodPreparePostObject:
+						go dataStoreProtocol.handlePreparePostObject(packet)
+					case DataStoreMethodPrepareGetObject:
+						go dataStoreProtocol.handlePrepareGetObject(packet)
+					case DataStoreMethodCompletePostObject:
+						go dataStoreProtocol.handleCompletePostObject(packet)
+					case DataStoreMethodGetPersistenceInfo:
+						go dataStoreProtocol.handleGetPersistenceInfo(packet)
+					case DataStoreMethodGetMetasMultipleParam:
+						go dataStoreProtocol.handleGetMetasMultipleParam(packet)
+					case DataStoreMethodChangeMeta:
+						go dataStoreProtocol.handleChangeMeta(packet)
+					case DataStoreMethodRateObjects:
+						go dataStoreProtocol.handleRateObjects(packet)
+					default:
+						go respondNotImplemented(packet, DataStoreProtocolID)
+						fmt.Printf("Unsupported DataStore method ID: %#v\n", request.MethodID())
+					}
+				}
+			})
+	}
 }
 
 // GetMeta sets the GetMeta handler function
-func (dataStoreProtocol *DataStoreProtocol) GetMeta(handler func(err error, client *nex.Client, callID uint32, dataStoreGetMetaParam *DataStoreGetMetaParam)) {
-	dataStoreProtocol.GetMetaHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) GetMeta(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStoreGetMetaParam *DataStoreGetMetaParam):
+			dataStoreProtocol.GetMetaHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStoreGetMetaParam *DataStoreGetMetaParam):
+			dataStoreProtocol.GetMetaHppHandler = handlerType
+	}
 }
 
 // PrepareUpdateObject sets the PrepareUpdateObject handler function
-func (dataStoreProtocol *DataStoreProtocol) PrepareUpdateObject(handler func(err error, client *nex.Client, callID uint32, dataStorePrepareUpdateParam *DataStorePrepareUpdateParam)) {
-	dataStoreProtocol.PrepareUpdateObjectHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) PrepareUpdateObject(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStorePrepareUpdateParam *DataStorePrepareUpdateParam):
+			dataStoreProtocol.PrepareUpdateObjectHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareUpdateParam *DataStorePrepareUpdateParam):
+			dataStoreProtocol.PrepareUpdateObjectHppHandler = handlerType
+	}
 }
 
 // CompleteUpdateObject sets the CompleteUpdateObject handler function
-func (dataStoreProtocol *DataStoreProtocol) CompleteUpdateObject(handler func(err error, client *nex.Client, callID uint32, dataStoreCompleteUpdateParam *DataStoreCompleteUpdateParam)) {
-	dataStoreProtocol.CompleteUpdateObjectHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) CompleteUpdateObject(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStoreCompleteUpdateParam *DataStoreCompleteUpdateParam):
+			dataStoreProtocol.CompleteUpdateObjectHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStoreCompleteUpdateParam *DataStoreCompleteUpdateParam):
+			dataStoreProtocol.CompleteUpdateObjectHppHandler = handlerType
+	}
 }
 
 // PostMetaBinary sets the PostMetaBinary handler function
-func (dataStoreProtocol *DataStoreProtocol) PostMetaBinary(handler func(err error, client *nex.Client, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam)) {
-	dataStoreProtocol.PostMetaBinaryHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) PostMetaBinary(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam):
+			dataStoreProtocol.PostMetaBinaryHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam):
+			dataStoreProtocol.PostMetaBinaryHppHandler = handlerType
+	}
 }
 
 // PreparePostObject sets the PreparePostObject handler function
-func (dataStoreProtocol *DataStoreProtocol) PreparePostObject(handler func(err error, client *nex.Client, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam)) {
-	dataStoreProtocol.PreparePostObjectHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) PreparePostObject(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam):
+			dataStoreProtocol.PreparePostObjectHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStorePreparePostParam *DataStorePreparePostParam):
+			dataStoreProtocol.PreparePostObjectHppHandler = handlerType
+	}
 }
 
 // PrepareGetObject sets the PrepareGetObject handler function
-func (dataStoreProtocol *DataStoreProtocol) PrepareGetObject(handler func(err error, client *nex.Client, callID uint32, dataStorePrepareGetParam *DataStorePrepareGetParam)) {
-	dataStoreProtocol.PrepareGetObjectHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) PrepareGetObject(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStorePrepareGetParam *DataStorePrepareGetParam):
+			dataStoreProtocol.PrepareGetObjectHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareGetParam *DataStorePrepareGetParam):
+			dataStoreProtocol.PrepareGetObjectHppHandler = handlerType
+	}
 }
 
 // CompletePostObject sets the CompletePostObject handler function
-func (dataStoreProtocol *DataStoreProtocol) CompletePostObject(handler func(err error, client *nex.Client, callID uint32, dataStoreCompletePostParam *DataStoreCompletePostParam)) {
-	dataStoreProtocol.CompletePostObjectHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) CompletePostObject(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStoreCompletePostParam *DataStoreCompletePostParam):
+			dataStoreProtocol.CompletePostObjectHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStoreCompletePostParam *DataStoreCompletePostParam):
+			dataStoreProtocol.CompletePostObjectHppHandler = handlerType
+	}
 }
 
 // GetPersistenceInfo sets the GetPersistenceInfo handler function
-func (dataStoreProtocol *DataStoreProtocol) GetPersistenceInfo(handler func(err error, client *nex.Client, callID uint32, ownerID uint32, persistenceSlotID uint16)) {
-	dataStoreProtocol.GetPersistenceInfoHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) GetPersistenceInfo(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, ownerID uint32, persistenceSlotID uint16):
+			dataStoreProtocol.GetPersistenceInfoHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, ownerID uint32, persistenceSlotID uint16):
+			dataStoreProtocol.GetPersistenceInfoHppHandler = handlerType
+	}
 }
 
 // GetMetasMultipleParam sets the GetMetasMultipleParam handler function
-func (dataStoreProtocol *DataStoreProtocol) GetMetasMultipleParam(handler func(err error, client *nex.Client, callID uint32, dataStorePrepareGetParams []*DataStoreGetMetaParam)) {
-	dataStoreProtocol.GetMetasMultipleParamHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) GetMetasMultipleParam(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStorePrepareGetParams []*DataStoreGetMetaParam):
+			dataStoreProtocol.GetMetasMultipleParamHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStorePrepareGetParams []*DataStoreGetMetaParam):
+			dataStoreProtocol.GetMetasMultipleParamHppHandler = handlerType
+	}
 }
 
 // ChangeMeta sets the ChangeMeta handler function
-func (dataStoreProtocol *DataStoreProtocol) ChangeMeta(handler func(err error, client *nex.Client, callID uint32, dataStoreChangeMetaParam *DataStoreChangeMetaParam)) {
-	dataStoreProtocol.ChangeMetaHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) ChangeMeta(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, dataStoreChangeMetaParam *DataStoreChangeMetaParam):
+			dataStoreProtocol.ChangeMetaHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, dataStoreChangeMetaParam *DataStoreChangeMetaParam):
+			dataStoreProtocol.ChangeMetaHppHandler = handlerType
+	}
 }
 
 // RateObjects sets the RateObjects handler function
-func (dataStoreProtocol *DataStoreProtocol) RateObjects(handler func(err error, client *nex.Client, callID uint32, targets []*DataStoreRatingTarget, params []*DataStoreRateObjectParam, transactional bool, fetchRatings bool)) {
-	dataStoreProtocol.RateObjectsHandler = handler
+func (dataStoreProtocol *DataStoreProtocol) RateObjects(handler interface{}) {
+	switch handlerType := handler.(type) {
+		case func(err error, client *nex.Client, callID uint32, targets []*DataStoreRatingTarget, params []*DataStoreRateObjectParam, transactional bool, fetchRatings bool):
+			dataStoreProtocol.RateObjectsHandler = handlerType
+		case func(err error, client *hpp.HppRequest, callID uint32, targets []*DataStoreRatingTarget, params []*DataStoreRateObjectParam, transactional bool, fetchRatings bool):
+			dataStoreProtocol.RateObjectsHppHandler = handlerType
+	}
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleGetMeta(packet nex.PacketInterface) {
-	if dataStoreProtocol.GetMetaHandler == nil {
-		logger.Warning("DataStoreProtocol::GetMeta not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleGetMeta(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.GetMetaHandler == nil {
+				logger.Warning("DataStoreProtocol::GetMeta not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStoreGetMetaParam, err := parametersStream.ReadStructure(NewDataStoreGetMetaParam())
+
+			if err != nil {
+				go dataStoreProtocol.GetMetaHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.GetMetaHandler(nil, client, callID, dataStoreGetMetaParam.(*DataStoreGetMetaParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.GetMetaHppHandler == nil {
+				logger.Warning("DataStoreProtocol::GetMeta not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStoreGetMetaParam, err := parametersStream.ReadStructure(NewDataStoreGetMetaParam())
+
+			if err != nil {
+				go dataStoreProtocol.GetMetaHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.GetMetaHppHandler(nil, packet, callID, dataStoreGetMetaParam.(*DataStoreGetMetaParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStoreGetMetaParam, err := parametersStream.ReadStructure(NewDataStoreGetMetaParam())
-
-	if err != nil {
-		go dataStoreProtocol.GetMetaHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.GetMetaHandler(nil, client, callID, dataStoreGetMetaParam.(*DataStoreGetMetaParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handlePrepareUpdateObject(packet nex.PacketInterface) {
-	if dataStoreProtocol.PrepareUpdateObjectHandler == nil {
-		logger.Warning("DataStoreProtocol::PrepareUpdateObject not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handlePrepareUpdateObject(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.PrepareUpdateObjectHandler == nil {
+				logger.Warning("DataStoreProtocol::PrepareUpdateObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStorePrepareUpdateParam, err := parametersStream.ReadStructure(NewDataStorePrepareUpdateParam())
+			if err != nil {
+				go dataStoreProtocol.PrepareUpdateObjectHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PrepareUpdateObjectHandler(nil, client, callID, dataStorePrepareUpdateParam.(*DataStorePrepareUpdateParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.PrepareUpdateObjectHppHandler == nil {
+				logger.Warning("DataStoreProtocol::PrepareUpdateObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStorePrepareUpdateParam, err := parametersStream.ReadStructure(NewDataStorePrepareUpdateParam())
+			if err != nil {
+				go dataStoreProtocol.PrepareUpdateObjectHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PrepareUpdateObjectHppHandler(nil, packet, callID, dataStorePrepareUpdateParam.(*DataStorePrepareUpdateParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStorePrepareUpdateParam, err := parametersStream.ReadStructure(NewDataStorePrepareUpdateParam())
-	if err != nil {
-		go dataStoreProtocol.PrepareUpdateObjectHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.PrepareUpdateObjectHandler(nil, client, callID, dataStorePrepareUpdateParam.(*DataStorePrepareUpdateParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleCompleteUpdateObject(packet nex.PacketInterface) {
-	if dataStoreProtocol.CompleteUpdateObjectHandler == nil {
-		logger.Warning("DataStoreProtocol::CompleteUpdateObject not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleCompleteUpdateObject(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.CompleteUpdateObjectHandler == nil {
+				logger.Warning("DataStoreProtocol::CompleteUpdateObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStoreCompleteUpdateParam, err := parametersStream.ReadStructure(NewDataStoreCompleteUpdateParam())
+			if err != nil {
+				go dataStoreProtocol.CompleteUpdateObjectHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.CompleteUpdateObjectHandler(nil, client, callID, dataStoreCompleteUpdateParam.(*DataStoreCompleteUpdateParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.CompleteUpdateObjectHppHandler == nil {
+				logger.Warning("DataStoreProtocol::CompleteUpdateObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStoreCompleteUpdateParam, err := parametersStream.ReadStructure(NewDataStoreCompleteUpdateParam())
+			if err != nil {
+				go dataStoreProtocol.CompleteUpdateObjectHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.CompleteUpdateObjectHppHandler(nil, packet, callID, dataStoreCompleteUpdateParam.(*DataStoreCompleteUpdateParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStoreCompleteUpdateParam, err := parametersStream.ReadStructure(NewDataStoreCompleteUpdateParam())
-	if err != nil {
-		go dataStoreProtocol.CompleteUpdateObjectHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.CompleteUpdateObjectHandler(nil, client, callID, dataStoreCompleteUpdateParam.(*DataStoreCompleteUpdateParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handlePostMetaBinary(packet nex.PacketInterface) {
-	if dataStoreProtocol.PostMetaBinaryHandler == nil {
-		logger.Warning("DataStoreProtocol::PostMetaBinary not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handlePostMetaBinary(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.PostMetaBinaryHandler == nil {
+				logger.Warning("DataStoreProtocol::PostMetaBinary not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
+			if err != nil {
+				go dataStoreProtocol.PostMetaBinaryHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PostMetaBinaryHandler(nil, client, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.PostMetaBinaryHppHandler == nil {
+				logger.Warning("DataStoreProtocol::PostMetaBinary not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
+			if err != nil {
+				go dataStoreProtocol.PostMetaBinaryHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PostMetaBinaryHppHandler(nil, packet, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
-	if err != nil {
-		go dataStoreProtocol.PostMetaBinaryHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.PostMetaBinaryHandler(nil, client, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handlePreparePostObject(packet nex.PacketInterface) {
-	if dataStoreProtocol.PreparePostObjectHandler == nil {
-		logger.Warning("DataStoreProtocol::PreparePostObject not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handlePreparePostObject(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.PreparePostObjectHandler == nil {
+				logger.Warning("DataStoreProtocol::PreparePostObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
+			if err != nil {
+				go dataStoreProtocol.PreparePostObjectHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PreparePostObjectHandler(nil, client, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.PreparePostObjectHppHandler == nil {
+				logger.Warning("DataStoreProtocol::PreparePostObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
+			if err != nil {
+				go dataStoreProtocol.PreparePostObjectHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PreparePostObjectHppHandler(nil, packet, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStorePreparePostParam, err := parametersStream.ReadStructure(NewDataStorePreparePostParam())
-	if err != nil {
-		go dataStoreProtocol.PreparePostObjectHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.PreparePostObjectHandler(nil, client, callID, dataStorePreparePostParam.(*DataStorePreparePostParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handlePrepareGetObject(packet nex.PacketInterface) {
-	if dataStoreProtocol.PrepareGetObjectHandler == nil {
-		logger.Warning("DataStoreProtocol::PrepareGetObject not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handlePrepareGetObject(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.PrepareGetObjectHandler == nil {
+				logger.Warning("DataStoreProtocol::PrepareGetObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStorePrepareGetParam, err := parametersStream.ReadStructure(NewDataStorePrepareGetParam())
+
+			if err != nil {
+				go dataStoreProtocol.PrepareGetObjectHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PrepareGetObjectHandler(nil, client, callID, dataStorePrepareGetParam.(*DataStorePrepareGetParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.PrepareGetObjectHppHandler == nil {
+				logger.Warning("DataStoreProtocol::PrepareGetObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStorePrepareGetParam, err := parametersStream.ReadStructure(NewDataStorePrepareGetParam())
+
+			if err != nil {
+				go dataStoreProtocol.PrepareGetObjectHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.PrepareGetObjectHppHandler(nil, packet, callID, dataStorePrepareGetParam.(*DataStorePrepareGetParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStorePrepareGetParam, err := parametersStream.ReadStructure(NewDataStorePrepareGetParam())
-
-	if err != nil {
-		go dataStoreProtocol.PrepareGetObjectHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.PrepareGetObjectHandler(nil, client, callID, dataStorePrepareGetParam.(*DataStorePrepareGetParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleCompletePostObject(packet nex.PacketInterface) {
-	if dataStoreProtocol.CompletePostObjectHandler == nil {
-		logger.Warning("DataStoreProtocol::CompletePostObject not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleCompletePostObject(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.CompletePostObjectHandler == nil {
+				logger.Warning("DataStoreProtocol::CompletePostObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStoreCompletePostParam, err := parametersStream.ReadStructure(NewDataStoreCompletePostParam())
+			if err != nil {
+				go dataStoreProtocol.CompletePostObjectHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.CompletePostObjectHandler(nil, client, callID, dataStoreCompletePostParam.(*DataStoreCompletePostParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.CompletePostObjectHppHandler == nil {
+				logger.Warning("DataStoreProtocol::CompletePostObject not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStoreCompletePostParam, err := parametersStream.ReadStructure(NewDataStoreCompletePostParam())
+			if err != nil {
+				go dataStoreProtocol.CompletePostObjectHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.CompletePostObjectHppHandler(nil, packet, callID, dataStoreCompletePostParam.(*DataStoreCompletePostParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStoreCompletePostParam, err := parametersStream.ReadStructure(NewDataStoreCompletePostParam())
-	if err != nil {
-		go dataStoreProtocol.CompletePostObjectHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.CompletePostObjectHandler(nil, client, callID, dataStoreCompletePostParam.(*DataStoreCompletePostParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleGetPersistenceInfo(packet nex.PacketInterface) {
-	if dataStoreProtocol.GetPersistenceInfoHandler == nil {
-		logger.Warning("DataStorePotocol::GetPersistenceInfo not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleGetPersistenceInfo(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.GetPersistenceInfoHandler == nil {
+				logger.Warning("DataStorePotocol::GetPersistenceInfo not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			if len(parametersStream.Bytes()[parametersStream.ByteOffset():]) < 6 {
+				err := errors.New("[DataStoreProtocol::GetPersistenceInfo] Data length too small")
+				go dataStoreProtocol.GetPersistenceInfoHandler(err, client, callID, 0, 0)
+				return
+			}
+
+			ownerID := parametersStream.ReadUInt32LE()
+			persistenceSlotID := parametersStream.ReadUInt16LE()
+
+			go dataStoreProtocol.GetPersistenceInfoHandler(nil, client, callID, ownerID, persistenceSlotID)
+		case *hpp.HppRequest:
+			if dataStoreProtocol.GetPersistenceInfoHppHandler == nil {
+				logger.Warning("DataStorePotocol::GetPersistenceInfo not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			if len(parametersStream.Bytes()[parametersStream.ByteOffset():]) < 6 {
+				err := errors.New("[DataStoreProtocol::GetPersistenceInfo] Data length too small")
+				go dataStoreProtocol.GetPersistenceInfoHppHandler(err, packet, callID, 0, 0)
+				return
+			}
+
+			ownerID := parametersStream.ReadUInt32LE()
+			persistenceSlotID := parametersStream.ReadUInt16LE()
+
+			go dataStoreProtocol.GetPersistenceInfoHppHandler(nil, packet, callID, ownerID, persistenceSlotID)
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	if len(parametersStream.Bytes()[parametersStream.ByteOffset():]) < 6 {
-		err := errors.New("[DataStoreProtocol::GetPersistenceInfo] Data length too small")
-		go dataStoreProtocol.GetPersistenceInfoHandler(err, client, callID, 0, 0)
-		return
-	}
-
-	ownerID := parametersStream.ReadUInt32LE()
-	persistenceSlotID := parametersStream.ReadUInt16LE()
-
-	go dataStoreProtocol.GetPersistenceInfoHandler(nil, client, callID, ownerID, persistenceSlotID)
 }
 
 
-func (dataStoreProtocol *DataStoreProtocol) handleGetMetasMultipleParam(packet nex.PacketInterface) {
-	if dataStoreProtocol.GetMetasMultipleParamHandler == nil {
-		logger.Warning("DataStoreProtocol::GetMetasMultipleParam not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleGetMetasMultipleParam(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+				if dataStoreProtocol.GetMetasMultipleParamHandler == nil {
+					logger.Warning("DataStoreProtocol::GetMetasMultipleParam not implemented")
+					go respondNotImplemented(packet, DataStoreProtocolID)
+					return
+				}
+
+				client := packet.Sender()
+				request := packet.RMCRequest()
+
+				callID := request.CallID()
+				parameters := request.Parameters()
+
+				var parametersStream *nex.StreamIn
+				switch serverType := dataStoreProtocol.server.(type) {
+					case *nex.Server:
+						parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStoreGetMetaParams, err := ReaListDataStoreGetMetaParam(parametersStream)
+
+			if err != nil {
+				go dataStoreProtocol.GetMetasMultipleParamHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.GetMetasMultipleParamHandler(nil, client, callID, dataStoreGetMetaParams)
+		case *hpp.HppRequest:
+			if dataStoreProtocol.GetMetasMultipleParamHppHandler == nil {
+				logger.Warning("DataStoreProtocol::GetMetasMultipleParam not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStoreGetMetaParams, err := ReaListDataStoreGetMetaParam(parametersStream)
+
+			if err != nil {
+				go dataStoreProtocol.GetMetasMultipleParamHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.GetMetasMultipleParamHppHandler(nil, packet, callID, dataStoreGetMetaParams)
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStoreGetMetaParams, err := ReaListDataStoreGetMetaParam(parametersStream)
-
-	if err != nil {
-		go dataStoreProtocol.GetMetasMultipleParamHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.GetMetasMultipleParamHandler(nil, client, callID, dataStoreGetMetaParams)
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleChangeMeta(packet nex.PacketInterface) {
-	if dataStoreProtocol.ChangeMetaHandler == nil {
-		logger.Warning("DataStoreProtocol::ChangeMeta not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleChangeMeta(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.ChangeMetaHandler == nil {
+				logger.Warning("DataStoreProtocol::ChangeMeta not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			dataStoreChangeMetaParam, err := parametersStream.ReadStructure(NewDataStoreChangeMetaParam())
+
+			if err != nil {
+				go dataStoreProtocol.ChangeMetaHandler(err, client, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.ChangeMetaHandler(nil, client, callID, dataStoreChangeMetaParam.(*DataStoreChangeMetaParam))
+		case *hpp.HppRequest:
+			if dataStoreProtocol.ChangeMetaHppHandler == nil {
+				logger.Warning("DataStoreProtocol::ChangeMeta not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			dataStoreChangeMetaParam, err := parametersStream.ReadStructure(NewDataStoreChangeMetaParam())
+
+			if err != nil {
+				go dataStoreProtocol.ChangeMetaHppHandler(err, packet, callID, nil)
+				return
+			}
+
+			go dataStoreProtocol.ChangeMetaHppHandler(nil, packet, callID, dataStoreChangeMetaParam.(*DataStoreChangeMetaParam))
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	dataStoreChangeMetaParam, err := parametersStream.ReadStructure(NewDataStoreChangeMetaParam())
-
-	if err != nil {
-		go dataStoreProtocol.ChangeMetaHandler(err, client, callID, nil)
-		return
-	}
-
-	go dataStoreProtocol.ChangeMetaHandler(nil, client, callID, dataStoreChangeMetaParam.(*DataStoreChangeMetaParam))
 }
 
-func (dataStoreProtocol *DataStoreProtocol) handleRateObjects(packet nex.PacketInterface) {
-	if dataStoreProtocol.RateObjectsHandler == nil {
-		logger.Warning("DataStoreProtocol::RateObjects not implemented")
-		go respondNotImplemented(packet, DataStoreProtocolID)
-		return
+func (dataStoreProtocol *DataStoreProtocol) handleRateObjects(input interface{}) {
+	switch packet := input.(type) {
+		case nex.PacketInterface:
+			if dataStoreProtocol.RateObjectsHandler == nil {
+				logger.Warning("DataStoreProtocol::RateObjects not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+
+			client := packet.Sender()
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			var parametersStream *nex.StreamIn
+			switch serverType := dataStoreProtocol.server.(type) {
+				case *nex.Server:
+					parametersStream = nex.NewStreamIn(parameters, serverType)
+			}
+
+			targets, err := ReadListDataStoreRatingTarget(parametersStream)
+			if err != nil {
+				go dataStoreProtocol.RateObjectsHandler(err, client, callID, nil, nil, false, false)
+				return
+			}
+
+			params, err := ReadListDataStoreRateObjectParam(parametersStream)
+			if err != nil {
+				go dataStoreProtocol.RateObjectsHandler(err, client, callID, nil, nil, false, false)
+				return
+			}
+
+			transactional := (parametersStream.ReadUInt8() == 1)
+			fetchRatings := (parametersStream.ReadUInt8() == 1)
+
+			go dataStoreProtocol.RateObjectsHandler(nil, client, callID, targets, params, transactional, fetchRatings)
+		case *hpp.HppRequest:
+			if dataStoreProtocol.RateObjectsHppHandler == nil {
+				logger.Warning("DataStoreProtocol::RateObjects not implemented")
+				go respondNotImplemented(packet, DataStoreProtocolID)
+				return
+			}
+			request := packet.RMCRequest()
+
+			callID := request.CallID()
+			parameters := request.Parameters()
+
+			parametersStream := nex.NewStreamIn(parameters, nil)
+
+			targets, err := ReadListDataStoreRatingTarget(parametersStream)
+			if err != nil {
+				go dataStoreProtocol.RateObjectsHppHandler(err, packet, callID, nil, nil, false, false)
+				return
+			}
+
+			params, err := ReadListDataStoreRateObjectParam(parametersStream)
+			if err != nil {
+				go dataStoreProtocol.RateObjectsHppHandler(err, packet, callID, nil, nil, false, false)
+				return
+			}
+
+			transactional := (parametersStream.ReadUInt8() == 1)
+			fetchRatings := (parametersStream.ReadUInt8() == 1)
+
+			go dataStoreProtocol.RateObjectsHppHandler(nil, packet, callID, targets, params, transactional, fetchRatings)
 	}
-
-	client := packet.Sender()
-	request := packet.RMCRequest()
-
-	callID := request.CallID()
-	parameters := request.Parameters()
-
-	parametersStream := nex.NewStreamIn(parameters, dataStoreProtocol.server)
-
-	targets, err := ReadListDataStoreRatingTarget(parametersStream)
-	if err != nil {
-		go dataStoreProtocol.RateObjectsHandler(err, client, callID, nil, nil, false, false)
-		return
-	}
-
-	params, err := ReadListDataStoreRateObjectParam(parametersStream)
-	if err != nil {
-		go dataStoreProtocol.RateObjectsHandler(err, client, callID, nil, nil, false, false)
-		return
-	}
-
-	transactional := (parametersStream.ReadUInt8() == 1)
-	fetchRatings := (parametersStream.ReadUInt8() == 1)
-
-	go dataStoreProtocol.RateObjectsHandler(nil, client, callID, targets, params, transactional, fetchRatings)
 }
 
 // NewDataStoreProtocol returns a new DataStoreProtocol
-func NewDataStoreProtocol(server *nex.Server) *DataStoreProtocol {
+func NewDataStoreProtocol(server interface{}) *DataStoreProtocol {
 	dataStoreProtocol := &DataStoreProtocol{server: server}
 
 	dataStoreProtocol.Setup()

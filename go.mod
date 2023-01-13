@@ -3,7 +3,8 @@ module github.com/PretendoNetwork/nex-protocols-go
 go 1.18
 
 require (
-	github.com/PretendoNetwork/nex-go v1.0.9
+	github.com/PretendoNetwork/hpp-go v0.0.0-00010101000000-000000000000
+	github.com/PretendoNetwork/nex-go v1.0.11
 	github.com/PretendoNetwork/plogger-go v1.0.2
 )
 
